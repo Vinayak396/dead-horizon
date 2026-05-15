@@ -4,8 +4,7 @@ import { updateZombies } from './zombie.js';
 import { createWaveManager, updateWaveManager } from './waveManager.js';
 import { placeBuilding, removeBuilding, updateBuildings, canAfford } from './buildings.js';
 import {
-  drawMap, drawResources, drawBuildings, drawPlayer,
-  drawZombies, drawParticles, drawBuildPreview, drawMinimap
+  drawMap, drawParticles, drawBuildPreview, drawMinimap, drawWorldDepthSorted
 } from './renderer.js';
 import { TILE_W, TILE_H, MAP_COLS, MAP_ROWS } from './constants.js';
 
@@ -21,6 +20,10 @@ export function createGameState() {
     zombies: [],
     particles: [],
     waveManager,
+    noiseEvents: [],
+    fireTiles: [],
+    isListening: false,
+    craftingOpen: false,
     buildMode: null,      // selected building type or null
     hoverCol: -1,
     hoverRow: -1,
@@ -42,8 +45,59 @@ export function gameUpdate(state, keys, mouseAngle, dt, now) {
   // Update buildings
   updateBuildings(buildings, player, dt);
 
-  // Update zombies
-  updateZombies(zombies, player, buildings, tiles, dt, now, particles);
+  // ── Listening Mode ────────────────────────────────────────────────────────
+  state.isListening = !!keys['KeyQ'] && player.stamina > 0;
+  if (state.isListening) {
+    player.stamina = Math.max(0, player.stamina - 0.08 * dt); // drain stamina
+    if (player.isRunning || keys['KeyW'] || keys['KeyA'] || keys['KeyS'] || keys['KeyD']) {
+      state.noiseEvents.push({ x: player.x, y: player.y, radius: 40 }); // noise from moving while listening
+    }
+  }
+
+  // ── Player running noise ──────────────────────────────────────────────────
+  if (player.isRunning && (keys['KeyW'] || keys['KeyA'] || keys['KeyS'] || keys['KeyD'])) {
+    state.noiseEvents.push({ x: player.x, y: player.y, radius: 80 });
+  }
+
+  // Update zombies (pass noiseEvents)
+  updateZombies(zombies, player, buildings, tiles, dt, now, particles, state.noiseEvents);
+  
+  // Clear noise events for next frame
+  state.noiseEvents = [];
+
+  // Update fire tiles (molotovs, noise bombs, traps)
+  for (let i = state.fireTiles.length - 1; i >= 0; i--) {
+    const f = state.fireTiles[i];
+    f.timer -= dt;
+    if (f.timer <= 0) {
+      state.fireTiles.splice(i, 1);
+      continue;
+    }
+    
+    if (f.isNoiseBomb) {
+      state.noiseEvents.push({ x: f.x, y: f.y, radius: 250 });
+      if (now % 500 < dt) particles.push({ type:'boss_aoe', x: f.x, y: f.y, timer: 200, maxTimer: 200 }); // visual pulse
+    } else if (f.isTrap) {
+      for (const z of zombies) {
+        if (z.isAlive && Math.hypot(z.x - f.x, z.y - f.y) < 30) {
+          z.stunTimer = 4000;
+          z.hp -= 10;
+          particles.push({ type:'damage', dmg: 10, sx: f.x, sy: f.y, timer: 500 });
+          state.fireTiles.splice(i, 1); // Trap consumed
+          break;
+        }
+      }
+    } else {
+      // Regular molotov fire
+      for (const z of zombies) {
+        if (z.isAlive && Math.hypot(z.x - f.x, z.y - f.y) < 50) {
+          z.hp -= 0.5;
+          if (z.hp <= 0) z.isAlive = false;
+          if (z.state < 3) z.state = 3; // HUNTING
+        }
+      }
+    }
+  }
 
   // Bloater explosion on death
   for (const z of zombies) {
@@ -136,12 +190,18 @@ export function gameDraw(state, ctx, canvasW, canvasH) {
     ctx.fillRect(0, 0, canvasW, canvasH);
   }
 
+  // Listening mode visual effect
+  if (state.isListening) {
+    ctx.filter = 'grayscale(100%) brightness(40%) sepia(20%) hue-rotate(180deg)';
+  } else {
+    ctx.filter = 'none';
+  }
   drawMap(ctx, tiles, camX, camY, canvasW, canvasH);
-  drawResources(ctx, resources, camX, camY, canvasW, canvasH);
-  drawBuildings(ctx, buildings, camX, camY, canvasW, canvasH);
-  drawZombies(ctx, zombies, camX, camY, canvasW, canvasH);
-  drawPlayer(ctx, player, camX, camY, canvasW, canvasH);
-  drawParticles(ctx, particles, camX, camY, canvasW, canvasH);
+  
+  // Depth-sorted world rendering
+  drawWorldDepthSorted(ctx, state, camX, camY, canvasW, canvasH);
+
+  drawParticles(ctx, particles, camX, camY, canvasW, canvasH, state);
   if (buildMode) drawBuildPreview(ctx, buildMode, hoverCol, hoverRow, canAfford(player.inventory, buildMode), camX, camY, canvasW, canvasH);
 
   // Minimap (drawn in screen space - no camera offset)
@@ -157,6 +217,7 @@ export function handleBuild(state, col, row) {
 }
 
 export function handleAttack(state, now) {
+  state.noiseEvents.push({ x: state.player.x, y: state.player.y, radius: 120 }); // Attacking makes noise
   const hits = playerAttack(state.player, state.zombies, now);
   for (const h of hits) {
     if (h.dmg === 0) {
@@ -170,9 +231,37 @@ export function handleAttack(state, now) {
   }
 }
 
-function addAlert(alerts, msg) {
+export function addAlert(alerts, msg) {
   // Prevent duplicates
   if (alerts.find(a => a.msg === msg)) return;
   alerts.push({ msg, timer: 3500 });
   if (alerts.length > 5) alerts.shift();
+}
+
+export function handleThrowable(state, type, mouseWorldX, mouseWorldY) {
+  const { player, inventory } = state.player;
+  if (player.inventory[type] <= 0) {
+    addAlert(state.alerts, `❌ No ${type.replace('_', ' ')}s left!`);
+    return;
+  }
+  
+  player.inventory[type]--;
+
+  if (type === 'molotov') {
+    state.fireTiles.push({ x: mouseWorldX, y: mouseWorldY, timer: 4000 });
+    state.noiseEvents.push({ x: mouseWorldX, y: mouseWorldY, radius: 300 });
+    state.particles.push({ type:'boss_aoe', x: mouseWorldX, y: mouseWorldY, timer: 500 }); // simulated explosion
+    addAlert(state.alerts, '🔥 Molotov thrown!');
+  } 
+  else if (type === 'noise_bomb') {
+    // Add a lingering noise event for 5 seconds
+    // (We'd need a lingering noise system, or just add a special fireTile-like entity for noise bombs)
+    state.fireTiles.push({ x: mouseWorldX, y: mouseWorldY, timer: 5000, isNoiseBomb: true });
+    addAlert(state.alerts, '🔊 Noise bomb deployed!');
+  }
+  else if (type === 'electric_trap') {
+    // We can reuse fireTiles logic, but check for zombie collision and stun them
+    state.fireTiles.push({ x: mouseWorldX, y: mouseWorldY, timer: 60000, isTrap: true });
+    addAlert(state.alerts, '⚡ Trap placed!');
+  }
 }

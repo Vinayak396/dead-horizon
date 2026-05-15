@@ -289,3 +289,79 @@ kbd {
   font-size: 11px; color: #444; letter-spacing: 1px;
   pointer-events: none;
 }
+
+/* ── New Survival Mechanics CSS ── */
+.injury-badge {
+  background: rgba(150, 0, 0, 0.4);
+  color: #ff8888;
+  border: 1px solid #ff3333;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+  animation: pulse-injury 1s infinite alternate;
+  box-shadow: 0 0 5px rgba(255, 0, 0, 0.3);
+}
+
+@keyframes pulse-injury {
+  0% { box-shadow: 0 0 5px rgba(255, 0, 0, 0.2); }
+  100% { box-shadow: 0 0 15px rgba(255, 0, 0, 0.6); }
+}
+
+.crafting-overlay {
+  position: absolute; inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200;
+  backdrop-filter: blur(4px);
+}
+
+.crafting-modal {
+  background: rgba(10, 15, 10, 0.95);
+  border: 1px solid var(--accent);
+  padding: 24px;
+  border-radius: 6px;
+  min-width: 400px;
+  box-shadow: 0 0 30px rgba(136, 204, 68, 0.15);
+}
+
+.crafting-modal h2 {
+  font-family: 'Orbitron', monospace;
+  color: var(--accent);
+  margin-bottom: 16px;
+  text-align: center;
+  letter-spacing: 2px;
+}
+
+.crafting-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.crafting-item {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 10px 16px;
+  border-radius: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: all 0.2s;
+}
+
+.crafting-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--accent);
+}
+
+.craft-name {
+  font-size: 14px;
+  font-weight: bold;
+  color: #fff;
+}
+
+.craft-cost {
+  font-size: 12px;
+  color: #aaa;
+}

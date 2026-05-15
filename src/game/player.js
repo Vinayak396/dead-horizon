@@ -3,7 +3,7 @@ import {
   PLAYER_MAX_HUNGER, PLAYER_MAX_WATER, PLAYER_MAX_STAMINA,
   HUNGER_DECAY_RATE, WATER_DECAY_RATE, STAMINA_RUN_DECAY,
   STAMINA_REGEN, ATTACK_RANGE, ATTACK_DAMAGE, ATTACK_COOLDOWN,
-  TILE_W, TILE_H, MAP_COLS, MAP_ROWS
+  TILE_W, TILE_H, MAP_COLS, MAP_ROWS, TILE_SPEED
 } from './constants.js';
 import { isWalkable } from './map.js';
 
@@ -27,8 +27,8 @@ export function createPlayer() {
     facingAngle: 0,        // angle toward mouse (radians)
     attackCooldown: 0,
     lastAttackTime: 0,
-    infected: false,       // Biter debuff
     infectedTimer: 0,
+    injuries: [],          // array of active injuries: 'minor_wound', 'bitten', 'deep_cut'
     // inventory
     inventory: {
       food: 3,
@@ -37,6 +37,15 @@ export function createPlayer() {
       stone: 5,
       meat: 0,
       sun_stone: 0,
+      rags: 0,
+      pills: 0,
+      shiv: 0,
+      molotov: 0,
+      noise_bomb: 0,
+      electric_trap: 0,
+      medkit: 0,
+      infection_cure: 0,
+      painkiller: 0,
     },
     // xp / level
     xp: 0,
@@ -54,26 +63,37 @@ export function updatePlayer(player, keys, mouseAngle, tiles, buildings, dt, now
   // ── stamina check ──────────────────────────────────────────────────────────
   const wantRun = keys['ShiftLeft'] || keys['ShiftRight'];
   player.isRunning = wantRun && player.stamina > 0;
-  const speed = player.isRunning ? PLAYER_RUN_SPEED : PLAYER_SPEED;
+  const baseSpeed = player.isRunning ? PLAYER_RUN_SPEED : PLAYER_SPEED;
 
-  // ── WASD movement ─────────────────────────────────────────────────────────
-  let dx = 0, dy = 0;
-  if (keys['KeyW'] || keys['ArrowUp'])    { dx -= 1; dy -= 1; }
-  if (keys['KeyS'] || keys['ArrowDown'])  { dx += 1; dy += 1; }
-  if (keys['KeyA'] || keys['ArrowLeft'])  { dx -= 1; dy += 1; }
-  if (keys['KeyD'] || keys['ArrowRight']) { dx += 1; dy -= 1; }
+  // ── terrain speed modifier & injury debuff ───────────────────────────────
+  const currentTile = tiles[player.row]?.[player.col] ?? 0;
+  let terrainMult = TILE_SPEED[currentTile] ?? 1.0;
+  
+  if (player.injuries?.includes('minor_wound')) terrainMult *= 0.85; // 15% slower
+  
+  const speed = baseSpeed * terrainMult;
 
-  // Convert isometric input to world (cartesian) movement
-  // In isometric: screen-right = world (+col,+row), screen-up = world (-col, +row)
-  // WASD: W=up-right, S=down-left, A=up-left, D=down-right (iso feel)
+  // ── WASD → screen-space direction, then convert to world ─────────────────
+  // Accumulate in SCREEN space (iso-aligned axes) so diagonal speed is
+  // visually identical to cardinal speed regardless of tile aspect ratio.
+  let sx = 0, sy = 0;
+  if (keys['KeyW'] || keys['ArrowUp'])    { sx +=  0; sy -= 1; } // screen up
+  if (keys['KeyS'] || keys['ArrowDown'])  { sx +=  0; sy += 1; } // screen down
+  if (keys['KeyA'] || keys['ArrowLeft'])  { sx -= 1; sy +=  0; } // screen left
+  if (keys['KeyD'] || keys['ArrowRight']) { sx += 1; sy +=  0; } // screen right
+
+  // Normalize screen vector (handles all combos equally)
+  const smag = Math.sqrt(sx * sx + sy * sy);
   let wx = 0, wy = 0;
-  if (keys['KeyW'] || keys['ArrowUp'])    { wx += speed; wy -= speed; }
-  if (keys['KeyS'] || keys['ArrowDown'])  { wx -= speed; wy += speed; }
-  if (keys['KeyA'] || keys['ArrowLeft'])  { wx -= speed; wy -= speed; }
-  if (keys['KeyD'] || keys['ArrowRight']) { wx += speed; wy += speed; }
-
-  // Normalise diagonal
-  if (wx !== 0 && wy !== 0) { wx *= 0.707; wy *= 0.707; }
+  if (smag > 0) {
+    const nsx = sx / smag;
+    const nsy = sy / smag;
+    // Inverse iso projection (TILE_W=64, TILE_H=32):
+    //   screen_x = wx/2 - wy  →  wx =  nsx + 2*nsy
+    //   screen_y = wx/4 + wy/2 →  wy =  nsy - nsx*0.5
+    wx = (nsx + 2 * nsy) * speed;
+    wy = (nsy - nsx * 0.5) * speed;
+  }
 
   // ── collision with map boundaries & water ─────────────────────────────────
   const nextX = player.x + wx;
@@ -115,8 +135,12 @@ export function updatePlayer(player, keys, mouseAngle, tiles, buildings, dt, now
   player.hunger  = Math.max(0, player.hunger  - HUNGER_DECAY_RATE * dt);
   player.water   = Math.max(0, player.water   - WATER_DECAY_RATE  * dt);
 
+  // ── deep cut debuff ──────────────────────────────────────────────────────
+  let runDecay = STAMINA_RUN_DECAY;
+  if (player.injuries?.includes('deep_cut')) runDecay *= 1.25;
+
   if (player.isRunning && (wx !== 0 || wy !== 0)) {
-    player.stamina = Math.max(0, player.stamina - STAMINA_RUN_DECAY * dt);
+    player.stamina = Math.max(0, player.stamina - runDecay * dt);
   } else {
     player.stamina = Math.min(PLAYER_MAX_STAMINA, player.stamina + STAMINA_REGEN * dt);
   }
@@ -129,10 +153,12 @@ export function updatePlayer(player, keys, mouseAngle, tiles, buildings, dt, now
     player.hp = Math.max(0, player.hp - 0.02 * dt);
   }
 
-  // ── infection debuff ──────────────────────────────────────────────────────
-  if (player.infected) {
-    player.infectedTimer -= dt;
-    if (player.infectedTimer <= 0) player.infected = false;
+  // ── infection timer (Bitten) ──────────────────────────────────────────────
+  if (player.injuries?.includes('bitten')) {
+    player.infectionTimer -= dt;
+    if (player.infectionTimer <= 0) {
+      player.hp = 0; // Death by infection
+    }
   }
 
   // ── attack cooldown ───────────────────────────────────────────────────────
@@ -186,7 +212,46 @@ export function useItem(player, itemType) {
     player.hasSunStone = true;
     return true;
   }
+  if (itemType === 'medkit') {
+    player.hp = Math.min(player.maxHp, player.hp + player.maxHp * 0.6);
+    // remove minor wound
+    if (player.injuries) {
+      player.injuries = player.injuries.filter(i => i !== 'minor_wound' && i !== 'deep_cut');
+    }
+    player.inventory.medkit--;
+    return true;
+  }
+  if (itemType === 'infection_cure') {
+    if (player.injuries) {
+      player.injuries = player.injuries.filter(i => i !== 'bitten');
+    }
+    player.inventory.infection_cure--;
+    return true;
+  }
+  if (itemType === 'painkiller') {
+    player.hp = Math.min(player.maxHp, player.hp + 20); // temp boost
+    player.inventory.painkiller--;
+    return true;
+  }
   return false;
+}
+
+export function tryStealthKill(player, zombies) {
+  for (const z of zombies) {
+    if (!z.isAlive || z.isBoss) continue;
+    // Must be unaware
+    if (z.state > 1) continue; // > CURIOUS means aware
+    
+    const dist = Math.hypot(z.x - player.x, z.y - player.y);
+    if (dist <= ATTACK_RANGE + 10) {
+      // Check if player is behind zombie (zombie faces its movement target)
+      // Since zombie.facing isn't strictly tracked, we just check stealth if unaware and close
+      z.hp = 0;
+      z.isAlive = false;
+      return { success: true, target: z };
+    }
+  }
+  return { success: false };
 }
 
 export function addXP(player, amount) {

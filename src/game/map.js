@@ -46,13 +46,63 @@ export function generateMap(seed = 42) {
     }
   }
 
+  // ── generate world buildings (ruins) ──────────────────────────────────────
+  let bPlaced = 0;
+  let bAttempts = 0;
+  while (bPlaced < 8 && bAttempts < 100) {
+    bAttempts++;
+    const bw = Math.floor(rng() * 4) + 4; // 4 to 7
+    const bh = Math.floor(rng() * 4) + 4;
+    const br = Math.floor(rng() * (MAP_ROWS - bh - 4)) + 2;
+    const bc = Math.floor(rng() * (MAP_COLS - bw - 4)) + 2;
+
+    // Don't spawn on player
+    if (Math.hypot(br + bh/2 - cr, bc + bw/2 - cc) < 15) continue;
+
+    // Check if flat enough (no water)
+    let ok = true;
+    for (let r = br; r < br + bh; r++) {
+      for (let c = bc; c < bc + bw; c++) {
+        if (tiles[r][c] === TILE.WATER) ok = false;
+      }
+    }
+    if (!ok) continue;
+
+    // Carve building
+    for (let r = br; r < br + bh; r++) {
+      for (let c = bc; c < bc + bw; c++) {
+        if (r === br || r === br + bh - 1 || c === bc || c === bc + bw - 1) {
+          tiles[r][c] = TILE.WALL;
+        } else {
+          tiles[r][c] = TILE.FLOOR;
+        }
+      }
+    }
+
+    // Punch a door
+    const doorSide = Math.floor(rng() * 4);
+    if (doorSide === 0) tiles[br][bc + Math.floor(bw/2)] = TILE.FLOOR;
+    else if (doorSide === 1) tiles[br + Math.floor(bh/2)][bc + bw - 1] = TILE.FLOOR;
+    else if (doorSide === 2) tiles[br + bh - 1][bc + Math.floor(bw/2)] = TILE.FLOOR;
+    else tiles[br + Math.floor(bh/2)][bc] = TILE.FLOOR;
+
+    bPlaced++;
+  }
+
   // ── scatter resources ─────────────────────────────────────────────────────
   const resourceDefs = [
+    // Natural / Outdoor
     { type:'food',      count:35, tile:[TILE.GRASS, TILE.DIRT] },
-    { type:'water_jug', count:25, tile:[TILE.SAND, TILE.RUBBLE] },
+    { type:'water_jug', count:25, tile:[TILE.SAND, TILE.RUBBLE, TILE.ROAD] },
     { type:'wood',      count:40, tile:[TILE.GRASS] },
     { type:'stone',     count:35, tile:[TILE.RUBBLE, TILE.DIRT] },
     { type:'meat',      count:20, tile:[TILE.GRASS, TILE.RUBBLE] },
+    
+    // Human-made / Indoors only
+    { type:'rags',      count:35, tile:[TILE.FLOOR] },
+    { type:'pills',     count:25, tile:[TILE.FLOOR] },
+    { type:'medkit',    count:5,  tile:[TILE.FLOOR] },
+    { type:'shiv',      count:8,  tile:[TILE.FLOOR] },
   ];
 
   for (const def of resourceDefs) {
@@ -120,11 +170,14 @@ export function getTileColor(tileType) {
     [TILE.ROAD]:   [COLORS.road,   '#5a5a5a'],
     [TILE.RUBBLE]: [COLORS.rubble, '#7a6a5a'],
     [TILE.SAND]:   [COLORS.sand,   '#c8b070'],
+    [TILE.FLOOR]:  ['#786858',     '#584838'], // Dirty wood/tile
+    [TILE.WALL]:   ['#888888',     '#666666'], // Concrete/Brick wall
   };
   return map[tileType] || [COLORS.grass, '#4a6a32'];
 }
 
 export function isWalkable(tiles, col, row) {
   if (row < 0 || row >= MAP_ROWS || col < 0 || col >= MAP_COLS) return false;
-  return tiles[row][col] !== TILE.WATER;
+  const t = tiles[row][col];
+  return t !== TILE.WATER && t !== TILE.WALL;
 }

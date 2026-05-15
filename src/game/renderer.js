@@ -3,40 +3,65 @@ import { tileToIso, getTileColor } from './map.js';
 import { getBossPhase } from './zombie.js';
 
 // ─── Isometric draw helpers ──────────────────────────────────────────────────
-function drawIsoTile(ctx, sx, sy, topColor, leftColor, rightColor) {
+function drawIsoTile(ctx, sx, sy, topColor, leftColor, rightColor, height = 0) {
   const hw = TILE_W / 2, hh = TILE_H / 2;
   // Top face
   ctx.beginPath();
-  ctx.moveTo(sx, sy - hh);
-  ctx.lineTo(sx + hw, sy);
-  ctx.lineTo(sx, sy + hh);
-  ctx.lineTo(sx - hw, sy);
+  ctx.moveTo(sx, sy - hh - height);
+  ctx.lineTo(sx + hw, sy - height);
+  ctx.lineTo(sx, sy + hh - height);
+  ctx.lineTo(sx - hw, sy - height);
   ctx.closePath();
   ctx.fillStyle = topColor;
   ctx.fill();
-  // Left face
-  ctx.beginPath();
-  ctx.moveTo(sx - hw, sy);
-  ctx.lineTo(sx, sy + hh);
-  ctx.lineTo(sx, sy + hh + 8);
-  ctx.lineTo(sx - hw, sy + 8);
-  ctx.closePath();
-  ctx.fillStyle = leftColor;
-  ctx.fill();
-  // Right face
-  ctx.beginPath();
-  ctx.moveTo(sx, sy + hh);
-  ctx.lineTo(sx + hw, sy);
-  ctx.lineTo(sx + hw, sy + 8);
-  ctx.lineTo(sx, sy + hh + 8);
-  ctx.closePath();
-  ctx.fillStyle = rightColor;
-  ctx.fill();
+
+  if (height > 0) {
+    // Left face (tall)
+    ctx.beginPath();
+    ctx.moveTo(sx - hw, sy - height);
+    ctx.lineTo(sx, sy + hh - height);
+    ctx.lineTo(sx, sy + hh);
+    ctx.lineTo(sx - hw, sy);
+    ctx.closePath();
+    ctx.fillStyle = leftColor;
+    ctx.fill();
+
+    // Right face (tall)
+    ctx.beginPath();
+    ctx.moveTo(sx, sy + hh - height);
+    ctx.lineTo(sx + hw, sy - height);
+    ctx.lineTo(sx + hw, sy);
+    ctx.lineTo(sx, sy + hh);
+    ctx.closePath();
+    ctx.fillStyle = rightColor;
+    ctx.fill();
+  } else {
+    // Left face (flat tile thickness)
+    ctx.beginPath();
+    ctx.moveTo(sx - hw, sy);
+    ctx.lineTo(sx, sy + hh);
+    ctx.lineTo(sx, sy + hh + 8);
+    ctx.lineTo(sx - hw, sy + 8);
+    ctx.closePath();
+    ctx.fillStyle = leftColor;
+    ctx.fill();
+
+    // Right face (flat tile thickness)
+    ctx.beginPath();
+    ctx.moveTo(sx, sy + hh);
+    ctx.lineTo(sx + hw, sy);
+    ctx.lineTo(sx + hw, sy + 8);
+    ctx.lineTo(sx, sy + hh + 8);
+    ctx.closePath();
+    ctx.fillStyle = rightColor;
+    ctx.fill();
+  }
 }
 
 export function drawMap(ctx, tiles, camX, camY, canvasW, canvasH) {
   for (let r = 0; r < MAP_ROWS; r++) {
     for (let c = 0; c < MAP_COLS; c++) {
+      if (tiles[r][c] === 7) continue; // Skip TILE.WALL (drawn in depth sort)
       const iso = tileToIso(c, r, TILE_W, TILE_H);
       const sx = iso.x - camX + canvasW / 2;
       const sy = iso.y - camY + canvasH / 2;
@@ -44,7 +69,7 @@ export function drawMap(ctx, tiles, camX, camY, canvasW, canvasH) {
       if (sy < -TILE_H || sy > canvasH + TILE_H * 2) continue;
       const [top, side] = getTileColor(tiles[r][c]);
       const dark = shadeColor(side, -30);
-      drawIsoTile(ctx, sx, sy, top, side, dark);
+      drawIsoTile(ctx, sx, sy, top, side, dark, 0);
     }
   }
 }
@@ -163,13 +188,10 @@ function drawBuilding(ctx, sx, sy, b) {
   }
 }
 
-export function drawPlayer(ctx, player, camX, camY, canvasW, canvasH) {
-  const iso = tileToIso(player.x / TILE_W, player.y / TILE_H, TILE_W, TILE_H);
-  const sx = iso.x - camX + canvasW / 2;
-  const sy = iso.y - camY + canvasH / 2;
+export function drawPlayer(ctx, player, sx, sy) {
 
   ctx.save();
-  ctx.translate(sx, sy - 20);
+  ctx.translate(sx, sy - 18);
 
   // Attack flash
   if (player.attackAnim > 0) {
@@ -177,41 +199,98 @@ export function drawPlayer(ctx, player, camX, camY, canvasW, canvasH) {
     ctx.shadowBlur = 20;
   }
 
-  // Body
-  ctx.fillStyle = player.infected ? '#88cc44' : '#c8a870';
+  // Calculate walk animation based on position
+  // We use the sum of x and y so both diagonal and straight movement animates.
+  const walkCycle = Math.sin((player.x + player.y) * 0.15); 
+  // If not moving, this naturally stops at whatever phase it's in, which is fine, 
+  // but let's make it more robust: if player is standing still, reset legs.
+  // We don't have a direct "isMoving" flag, but we can assume if they aren't attacking,
+  // we just use the position.
+  const legSwing = walkCycle * 6; 
+
+  // --- Legs (Jeans) ---
+  ctx.fillStyle = '#2c3e50'; 
+  
+  // Back leg
   ctx.beginPath();
-  ctx.ellipse(0, 0, 10, 14, 0, 0, Math.PI * 2);
+  ctx.roundRect(-6 + legSwing, 6, 5, 14, 2);
+  ctx.fill();
+  
+  // Front leg
+  ctx.beginPath();
+  ctx.roundRect(1 - legSwing, 6, 5, 14, 2);
   ctx.fill();
 
-  // Clothes
-  ctx.fillStyle = '#3a5a2a';
-  ctx.fillRect(-9, -2, 18, 12);
-
-  // Head
-  ctx.fillStyle = '#c8a870';
+  // --- Torso / Jacket ---
+  ctx.fillStyle = player.infected ? '#4c6b32' : '#6b4c3a'; // Brown leather or green if infected
   ctx.beginPath();
-  ctx.arc(0, -16, 9, 0, Math.PI * 2);
+  ctx.roundRect(-9, -6, 18, 14, 4);
   ctx.fill();
 
-  // Weapon arm (rotate toward mouse)
+  // Backpack
+  ctx.fillStyle = '#333';
+  ctx.beginPath();
+  ctx.roundRect(-12, -4, 6, 10, 2);
+  ctx.fill();
+
+  // --- Head ---
+  ctx.fillStyle = player.infected ? '#88cc44' : '#f5cba7'; // Skin color
+  ctx.beginPath();
+  ctx.arc(0, -12, 7, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Hair / Beanie
+  ctx.fillStyle = '#111';
+  ctx.beginPath();
+  ctx.arc(0, -13, 7.5, Math.PI, 0);
+  ctx.fill();
+
+  // --- Weapon Arm (rotates toward mouse) ---
   ctx.save();
+  ctx.translate(2, -4); // Shoulder joint
   ctx.rotate(player.facingAngle);
-  ctx.fillStyle = '#8B6914';
-  ctx.fillRect(6, -4, 22, 5);
-  // Blade tip
-  ctx.fillStyle = '#aaa';
+  
+  // Sleeve
+  ctx.fillStyle = player.infected ? '#4c6b32' : '#6b4c3a';
   ctx.beginPath();
-  ctx.moveTo(28, -2); ctx.lineTo(36, -5); ctx.lineTo(28, 5);
+  ctx.roundRect(0, -2.5, 12, 5, 2);
   ctx.fill();
+
+  // Hand
+  ctx.fillStyle = player.infected ? '#88cc44' : '#f5cba7';
+  ctx.beginPath();
+  ctx.arc(14, 0, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Weapon (Shiv / Pipe)
+  ctx.fillStyle = '#8B6914'; // Wood handle
+  ctx.fillRect(12, -10, 3, 20);
+  
+  // Blade tip
+  ctx.fillStyle = '#eee';
+  ctx.beginPath();
+  ctx.moveTo(12, -10);
+  ctx.lineTo(13.5, -18);
+  ctx.lineTo(15, -10);
+  ctx.fill();
+
+  // Blood on blade if attack anim
+  if (player.attackAnim > 0) {
+    ctx.fillStyle = '#cc0000';
+    ctx.beginPath();
+    ctx.arc(13.5, -14, 2, 0, Math.PI*2);
+    ctx.fill();
+  }
+
   ctx.restore();
 
   // Sun stone glow
   if (player.hasSunStone) {
     ctx.shadowColor = '#ffdd00';
     ctx.shadowBlur = 30;
-    ctx.fillStyle = 'rgba(255,220,0,0.3)';
+    ctx.fillStyle = 'rgba(255,220,0,0.2)';
     ctx.beginPath();
-    ctx.arc(0, 0, 22, 0, Math.PI * 2);
+    ctx.arc(0, 0, 24, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
   }
@@ -220,23 +299,23 @@ export function drawPlayer(ctx, player, camX, camY, canvasW, canvasH) {
 
   // HP bar above player
   ctx.fillStyle = 'rgba(0,0,0,0.5)';
-  ctx.fillRect(sx - 22, sy - 55, 44, 6);
+  ctx.fillRect(sx - 22, sy - 50, 44, 6);
   ctx.fillStyle = '#44ff44';
-  ctx.fillRect(sx - 22, sy - 55, 44 * (player.hp / player.maxHp), 6);
+  ctx.fillRect(sx - 22, sy - 50, 44 * (player.hp / player.maxHp), 6);
 }
 
-export function drawZombies(ctx, zombies, camX, camY, canvasW, canvasH) {
+export function drawZombies(ctx, zombies, camX, camY, canvasW, canvasH, isListening) {
   for (const z of zombies) {
     if (!z.isAlive) continue;
     const iso = tileToIso(z.x / TILE_W, z.y / TILE_H, TILE_W, TILE_H);
     const sx = iso.x - camX + canvasW / 2;
     const sy = iso.y - camY + canvasH / 2;
     if (sx < -60 || sx > canvasW + 60 || sy < -80 || sy > canvasH + 80) continue;
-    drawZombie(ctx, z, sx, sy);
+    drawZombie(ctx, z, sx, sy, isListening);
   }
 }
 
-function drawZombie(ctx, z, sx, sy) {
+function drawZombie(ctx, z, sx, sy, isListening) {
   ctx.save();
   ctx.translate(sx, sy - z.size);
 
@@ -263,6 +342,26 @@ function drawZombie(ctx, z, sx, sy) {
     ctx.font = 'bold 11px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(`☠ PLAGUE LORD (Phase ${phase})`, sx, sy - z.size - 34);
+    return;
+  }
+
+  // Listening mode overrides rendering
+  if (isListening) {
+    // Stalker invisible in listening mode
+    if (z.rank === 11) { ctx.restore(); return; }
+
+    let color = '#ffff00'; // IDLE/CURIOUS
+    if (z.state === 2 || z.state === 4) color = '#ff8800'; // ALERTED/SEARCHING
+    if (z.state === 3) color = '#ff0000'; // HUNTING
+
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.ellipse(0, -6 * s, 10 * s, 15 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.restore();
     return;
   }
 
@@ -341,7 +440,33 @@ function drawBoss(ctx, z, s) {
   ctx.shadowBlur = 0;
 }
 
-export function drawParticles(ctx, particles, camX, camY, canvasW, canvasH) {
+export function drawParticles(ctx, particles, camX, camY, canvasW, canvasH, state) {
+  // Draw Fire Tiles (Molotov/NoiseBomb/Trap)
+  if (state?.fireTiles) {
+    for (const f of state.fireTiles) {
+      const iso = tileToIso(f.x / TILE_W, f.y / TILE_H, TILE_W, TILE_H);
+      const sx = iso.x - camX + canvasW / 2;
+      const sy = iso.y - camY + canvasH / 2;
+      if (f.isNoiseBomb) {
+        ctx.fillStyle = `rgba(0,100,255,0.4)`;
+        ctx.beginPath(); ctx.arc(sx, sy, 8, 0, Math.PI * 2); ctx.fill();
+      } else if (f.isTrap) {
+        ctx.fillStyle = `rgba(0,255,255,0.6)`;
+        ctx.beginPath(); ctx.arc(sx, sy, 5, 0, Math.PI * 2); ctx.fill();
+        if (Math.random() > 0.8) {
+          ctx.strokeStyle = '#00ffff';
+          ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + (Math.random()-0.5)*20, sy - Math.random()*20); ctx.stroke();
+        }
+      } else {
+        const t = Date.now() / 150;
+        ctx.fillStyle = `rgba(255,${80 + Math.sin(t)*50},0,0.7)`;
+        ctx.beginPath(); ctx.arc(sx, sy, 25 + Math.random()*5, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = `rgba(255,200,0,0.9)`;
+        ctx.beginPath(); ctx.arc(sx, sy - 10, 15 + Math.random()*5, 0, Math.PI*2); ctx.fill();
+      }
+    }
+  }
+
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.timer -= 16;
@@ -366,6 +491,95 @@ export function drawParticles(ctx, particles, camX, camY, canvasW, canvasH) {
       ctx.font = `12px serif`;
       ctx.textAlign = 'center';
       ctx.fillText(p.icon, p.sx, p.sy - (1 - alpha) * 25);
+    }
+  }
+}
+
+export function drawWorldDepthSorted(ctx, state, camX, camY, canvasW, canvasH) {
+  const { player, tiles, resources, buildings, zombies } = state;
+  const renderables = [];
+
+  // 1. TILE.WALL map elements
+  for (let r = 0; r < MAP_ROWS; r++) {
+    for (let c = 0; c < MAP_COLS; c++) {
+      if (tiles[r][c] === 7) { // TILE.WALL
+        const iso = tileToIso(c, r, TILE_W, TILE_H);
+        const sx = iso.x - camX + canvasW / 2;
+        const sy = iso.y - camY + canvasH / 2;
+        if (sx < -TILE_W || sx > canvasW + TILE_W || sy < -TILE_H || sy > canvasH + TILE_H * 2) continue;
+        renderables.push({ type: 'wall', z: iso.y, r, c, sx, sy });
+      }
+    }
+  }
+
+  // 2. Resources
+  for (const res of resources) {
+    if (res.amount <= 0) continue;
+    const iso = tileToIso(res.col, res.row, TILE_W, TILE_H);
+    const sx = iso.x - camX + canvasW / 2;
+    const sy = iso.y - camY + canvasH / 2;
+    if (sx < -60 || sx > canvasW + 60 || sy < -60 || sy > canvasH + 60) continue;
+    renderables.push({ type: 'resource', z: iso.y, res, sx, sy });
+  }
+
+  // 3. Buildings
+  for (const b of Object.values(buildings)) {
+    const iso = tileToIso(b.col, b.row, TILE_W, TILE_H);
+    const sx = iso.x - camX + canvasW / 2;
+    const sy = iso.y - camY + canvasH / 2;
+    if (sx < -80 || sx > canvasW + 80 || sy < -80 || sy > canvasH + 80) continue;
+    renderables.push({ type: 'building', z: iso.y, b, sx, sy });
+  }
+
+  // 4. Zombies
+  for (const z of zombies) {
+    if (!z.isAlive) continue;
+    const iso = tileToIso(z.x / TILE_W, z.y / TILE_H, TILE_W, TILE_H);
+    const sx = iso.x - camX + canvasW / 2;
+    const sy = iso.y - camY + canvasH / 2;
+    if (sx < -60 || sx > canvasW + 60 || sy < -80 || sy > canvasH + 80) continue;
+    renderables.push({ type: 'zombie', z: iso.y, zombie: z, sx, sy });
+  }
+
+  // 5. Player
+  const isoP = tileToIso(player.x / TILE_W, player.y / TILE_H, TILE_W, TILE_H);
+  const pSx = isoP.x - camX + canvasW / 2;
+  const pSy = isoP.y - camY + canvasH / 2;
+  renderables.push({ type: 'player', z: isoP.y, player, sx: pSx, sy: pSy });
+
+  // Sort by depth (isometric Y)
+  renderables.sort((a, b) => a.z - b.z);
+
+  // Draw loop
+  for (const item of renderables) {
+    if (item.type === 'wall') {
+      const [top, side] = getTileColor(tiles[item.r][item.c]);
+      const dark = shadeColor(side, -30);
+      
+      // X-Ray logic: if wall is in front of player and obscuring
+      if (item.z > isoP.y && Math.hypot(item.sx - pSx, item.sy - pSy) < 120) {
+        ctx.globalAlpha = 0.25;
+      }
+      drawIsoTile(ctx, item.sx, item.sy, top, side, dark, 60);
+      ctx.globalAlpha = 1.0;
+    } 
+    else if (item.type === 'resource') {
+      const icons = { food:'🌿', water_jug:'💧', wood:'🪵', stone:'🪨', meat:'🥩', sun_stone:'⭐', rags:'🧻', pills:'💊', medkit:'✚', painkiller:'💊', infection_cure:'💉', molotov:'🔥', noise_bomb:'🔊', electric_trap:'⚡', shiv:'🔪' };
+      ctx.font = item.res.isSunStone ? '28px serif' : '20px serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      if (item.res.isSunStone) { ctx.shadowColor = '#ffdd00'; ctx.shadowBlur = 20; }
+      ctx.fillText(icons[item.res.type] || '?', item.sx, item.sy - 10);
+      ctx.shadowBlur = 0;
+    }
+    else if (item.type === 'building') {
+      drawBuilding(ctx, item.sx, item.sy, item.b);
+    }
+    else if (item.type === 'zombie') {
+      drawZombie(ctx, item.zombie, item.sx, item.sy, state.isListening);
+    }
+    else if (item.type === 'player') {
+      drawPlayer(ctx, item.player, item.sx, item.sy);
     }
   }
 }

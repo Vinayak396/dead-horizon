@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { useGameLoop } from '../hooks/useGameLoop.js';
-import { createGameState, gameUpdate, gameDraw, handleBuild, handleAttack } from '../game/engine.js';
-import { useItem } from '../game/player.js';
+import { createGameState, gameUpdate, gameDraw, handleBuild, handleAttack, handleThrowable, addAlert } from '../game/engine.js';
+import { useItem, tryStealthKill } from '../game/player.js';
 import { TILE_W, TILE_H } from '../game/constants.js';
 import HUD from './HUD.jsx';
 
@@ -37,7 +37,24 @@ export default function GameCanvas({ onDead, onVictory }) {
       if (e.code === 'KeyJ') s.buildMode = s.buildMode === 'firepit'    ? null : 'firepit';
       if (e.code === 'KeyK') s.buildMode = s.buildMode === 'well'       ? null : 'well';
       if (e.code === 'KeyL') s.buildMode = s.buildMode === 'farm'       ? null : 'farm';
-      if (e.code === 'Escape') s.buildMode = null;
+      if (e.code === 'KeyC') s.craftingOpen = !s.craftingOpen;
+      if (e.code === 'Escape') { s.buildMode = null; s.craftingOpen = false; }
+      
+      // Stealth kill
+      if (e.code === 'KeyE') {
+        const kill = tryStealthKill(s.player, s.zombies);
+        if (kill.success) {
+          addAlert(s.alerts, '🔪 Stealth Kill!');
+          s.noiseEvents.push({ x: s.player.x, y: s.player.y, radius: 40 }); // quiet kill
+        }
+      }
+
+      // Throwables
+      const worldTargetX = s.hoverCol * TILE_W + TILE_W / 2;
+      const worldTargetY = s.hoverRow * TILE_H + TILE_H / 2;
+      if (e.code === 'KeyT') handleThrowable(s, 'molotov', worldTargetX, worldTargetY);
+      if (e.code === 'KeyY') handleThrowable(s, 'noise_bomb', worldTargetX, worldTargetY);
+      if (e.code === 'KeyU') handleThrowable(s, 'electric_trap', worldTargetX, worldTargetY);
     };
     const up = (e) => { keysRef.current[e.code] = false; };
     window.addEventListener('keydown', down);
@@ -106,6 +123,8 @@ export default function GameCanvas({ onDead, onVictory }) {
         water:      s.player.water,
         stamina:    s.player.stamina,
         infected:   s.player.infected,
+        injuries:   s.player.injuries || [],
+        infectionTimer: s.player.infectionTimer || 0,
         inventory:  { ...s.player.inventory },
         hasSunStone: s.player.hasSunStone,
         level:      s.player.level,
@@ -117,6 +136,7 @@ export default function GameCanvas({ onDead, onVictory }) {
         waveTimer:  s.waveManager.phaseTimer,
         zombiesLeft: s.waveManager.zombiesRemaining,
         alerts:     [...s.alerts],
+        craftingOpen: s.craftingOpen,
       });
     }
   });

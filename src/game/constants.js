@@ -11,8 +11,8 @@ export const PLAYER_MAX_HP      = 100;
 export const PLAYER_MAX_HUNGER  = 100;
 export const PLAYER_MAX_WATER   = 100;
 export const PLAYER_MAX_STAMINA = 100;
-export const HUNGER_DECAY_RATE  = 0.004;   // per frame
-export const WATER_DECAY_RATE   = 0.006;
+export const HUNGER_DECAY_RATE  = 0.00033;  // ~5 min to deplete at 60fps
+export const WATER_DECAY_RATE   = 0.00042;  // ~4 min to deplete at 60fps
 export const STAMINA_RUN_DECAY  = 0.25;
 export const STAMINA_REGEN      = 0.12;
 export const ATTACK_RANGE       = 55;
@@ -27,6 +27,20 @@ export const TILE = {
   ROAD:   3,
   RUBBLE: 4,
   SAND:   5,
+  FLOOR:  6,
+  WALL:   7,
+};
+
+// ─── Terrain speed multipliers ────────────────────────────────────────────────
+export const TILE_SPEED = {
+  0: 1.0,   // Grass
+  1: 1.0,   // Dirt
+  2: 0.0,   // Water
+  3: 1.35,  // Road
+  4: 0.75,  // Rubble
+  5: 0.65,  // Sand
+  6: 1.1,   // Floor - slightly faster indoors
+  7: 0.0,   // Wall - blocked
 };
 
 // ─── Resource types ───────────────────────────────────────────────────────────
@@ -37,6 +51,38 @@ export const RES = {
   STONE:     'stone',
   SUN_STONE: 'sun_stone',
   MEAT:      'meat',
+  RAGS:      'rags',
+  PILLS:     'pills',
+};
+
+// ─── Items (Craftable / Usable) ───────────────────────────────────────────────
+export const ITEMS = {
+  SHIV:          'shiv',
+  MOLOTOV:       'molotov',
+  NOISE_BOMB:    'noise_bomb',
+  ELECTRIC_TRAP: 'electric_trap',
+  MEDKIT:        'medkit',
+  INFECTION_CURE:'infection_cure',
+  PAINKILLER:    'painkiller',
+};
+
+// ─── Zombie States ────────────────────────────────────────────────────────────
+export const ZOMBIE_STATE = {
+  IDLE: 0,
+  CURIOUS: 1,
+  ALERTED: 2,
+  HUNTING: 3,
+  SEARCHING: 4,
+  GIVING_UP: 5,
+};
+
+// ─── Noise Levels ─────────────────────────────────────────────────────────────
+export const NOISE_RADIUS = {
+  SNEAK: 0,
+  WALK: 30,
+  RUN: 80,
+  ATTACK: 120,
+  EXPLOSION: 300,
 };
 
 // ─── Building types ───────────────────────────────────────────────────────────

@@ -48,9 +48,10 @@ function costLabel(key) {
 export default function HUD({ data, onSetBuildMode, onUseItem }) {
   const {
     hp, maxHp, hunger, water, stamina, infected,
+    injuries, infectionTimer,
     inventory, hasSunStone, level, xp,
     buildMode, wave, totalWaves, wavePhase, waveTimer, zombiesLeft,
-    alerts,
+    alerts, craftingOpen
   } = data;
 
   const xpNeeded = level * 100;
@@ -60,7 +61,13 @@ export default function HUD({ data, onSetBuildMode, onUseItem }) {
       {/* ── Top bar ── */}
       <div className="hud-top">
         <div className="stats-panel">
-          {infected && <div className="infected-badge">☣ INFECTED</div>}
+          {infected && <div className="infected-badge">☣ BITER DEBUFF (SLOW)</div>}
+          {injuries?.map((inj, i) => (
+            <div key={i} className="injury-badge">
+              🩸 {inj.replace('_', ' ').toUpperCase()} 
+              {inj === 'bitten' && ` - ${(infectionTimer / 1000).toFixed(0)}s`}
+            </div>
+          ))}
           <StatBar label="❤️" value={hp} max={maxHp} type="hp" />
           <StatBar label="🍖" value={hunger} max={100} type="hunger" warn={hunger < 20} />
           <StatBar label="💧" value={water}  max={100} type="water"  warn={water  < 20} />
@@ -105,9 +112,18 @@ export default function HUD({ data, onSetBuildMode, onUseItem }) {
             { key: 'food',      icon: '🌿', label: 'Food',    hotkey: '1' },
             { key: 'water_jug', icon: '💧', label: 'Water',   hotkey: '2' },
             { key: 'meat',      icon: '🥩', label: 'Meat',    hotkey: '3' },
+            { key: 'medkit',    icon: '✚',  label: 'Medkit',  hotkey: '4' },
+            { key: 'painkiller',icon: '💊', label: 'Pills',   hotkey: '5' },
+            { key: 'infection_cure',icon:'💉',label:'Cure',   hotkey: '6' },
+            { key: 'molotov',   icon: '🔥', label: 'Molotov', hotkey: 'T' },
+            { key: 'noise_bomb',icon: '🔊', label: 'Noise',   hotkey: 'Y' },
+            { key: 'electric_trap',icon:'⚡',label: 'Trap',   hotkey: 'U' },
+            { key: 'shiv',      icon: '🔪', label: 'Shiv',    hotkey: '' },
+            { key: 'rags',      icon: '🧻', label: 'Rags',    hotkey: '' },
+            { key: 'pills',     icon: '💊', label: 'Raw Pills',hotkey: '' },
             { key: 'wood',      icon: '🪵', label: 'Wood',    hotkey: '' },
             { key: 'stone',     icon: '🪨', label: 'Stone',   hotkey: '' },
-            { key: 'sun_stone', icon: '⭐', label: 'SunStone',hotkey: '4' },
+            { key: 'sun_stone', icon: '⭐', label: 'SunStone',hotkey: '' },
           ].map(item => (
             <div
               key={item.key}
@@ -158,8 +174,31 @@ export default function HUD({ data, onSetBuildMode, onUseItem }) {
 
       {/* ── Controls hint ── */}
       <div className="controls-hint">
-        WASD Move • Shift Run • Left Click Attack/Build • Right Click Cancel Build
+        WASD Move • Shift Run • Q Listen • C Craft • E Stealth Kill • T/Y/U Throw • LClick Attack/Build • RClick Cancel
       </div>
+
+      {/* ── Crafting Menu Overlay ── */}
+      {craftingOpen && (
+        <div className="crafting-overlay">
+          <div className="crafting-modal">
+            <h2>CRAFTING</h2>
+            <div className="crafting-grid">
+              {[
+                { key: 'medkit', label: '✚ Medkit', cost: '1x Rags, 1x Raw Pills' },
+                { key: 'molotov', label: '🔥 Molotov', cost: '1x Rags, 1x Water Jug' },
+                { key: 'shiv', label: '🔪 Shiv', cost: '1x Wood, 1x Stone' },
+                { key: 'noise_bomb', label: '🔊 Noise Bomb', cost: '1x Stone, 1x Wood' },
+              ].map(c => (
+                <div key={c.key} className="crafting-item">
+                  <div className="craft-name">{c.label}</div>
+                  <div className="craft-cost">{c.cost}</div>
+                </div>
+              ))}
+            </div>
+            <div className="hint-text" style={{marginTop: '10px'}}>Crafting system logic is WIP.</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
