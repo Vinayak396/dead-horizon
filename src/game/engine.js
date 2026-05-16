@@ -1,10 +1,13 @@
 import { generateMap, isoToTile, tileToIso } from './map.js';
-import { createPlayer, updatePlayer, playerAttack, useItem, addXP } from './player.js';
+import { createPlayer, updatePlayer, playerAttack, consumeItem, addXP } from './player.js';
 import { updateZombies } from './zombie.js';
 import { createWaveManager, updateWaveManager } from './waveManager.js';
-import { placeBuilding, removeBuilding, updateBuildings, canAfford } from './buildings.js';
+import { placeBuilding, updateBuildings, canAfford } from './buildings.js';
 import {
-  drawMap, drawParticles, drawBuildPreview, drawMinimap, drawWorldDepthSorted
+  drawRaycaster,
+  drawMinimap,
+  drawBuildPreview,
+  drawParticles
 } from './renderer.js';
 import { TILE_W, TILE_H, MAP_COLS, MAP_ROWS } from './constants.js';
 
@@ -196,16 +199,15 @@ export function gameDraw(state, ctx, canvasW, canvasH) {
   } else {
     ctx.filter = 'none';
   }
-  drawMap(ctx, tiles, camX, camY, canvasW, canvasH);
   
-  // Depth-sorted world rendering
-  drawWorldDepthSorted(ctx, state, camX, camY, canvasW, canvasH);
+  // 2. Draw World (First-Person Raycaster)
+  drawRaycaster(ctx, state, canvasW, canvasH);
 
   drawParticles(ctx, particles, camX, camY, canvasW, canvasH, state);
   if (buildMode) drawBuildPreview(ctx, buildMode, hoverCol, hoverRow, canAfford(player.inventory, buildMode), camX, camY, canvasW, canvasH);
 
-  // Minimap (drawn in screen space - no camera offset)
-  drawMinimap(ctx, player, zombies, resources, buildings, MAP_COLS, MAP_ROWS);
+  // 3. Draw minimap
+  drawMinimap(ctx, state, canvasW, canvasH);
 }
 
 export function handleBuild(state, col, row) {

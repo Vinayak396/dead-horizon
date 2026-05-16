@@ -73,26 +73,31 @@ export function updatePlayer(player, keys, mouseAngle, tiles, buildings, dt, now
   
   const speed = baseSpeed * terrainMult;
 
-  // ── WASD → screen-space direction, then convert to world ─────────────────
-  // Accumulate in SCREEN space (iso-aligned axes) so diagonal speed is
-  // visually identical to cardinal speed regardless of tile aspect ratio.
-  let sx = 0, sy = 0;
-  if (keys['KeyW'] || keys['ArrowUp'])    { sx +=  0; sy -= 1; } // screen up
-  if (keys['KeyS'] || keys['ArrowDown'])  { sx +=  0; sy += 1; } // screen down
-  if (keys['KeyA'] || keys['ArrowLeft'])  { sx -= 1; sy +=  0; } // screen left
-  if (keys['KeyD'] || keys['ArrowRight']) { sx += 1; sy +=  0; } // screen right
+  // ── WASD → Forward/Back/Strafe relative to facingAngle ───────────────────
+  let moveForward = 0;
+  let moveStrafe = 0;
+  
+  if (keys['KeyW'] || keys['ArrowUp'])    moveForward = 1;
+  if (keys['KeyS'] || keys['ArrowDown'])  moveForward = -1;
+  if (keys['KeyA'] || keys['ArrowLeft'])  moveStrafe = -1;
+  if (keys['KeyD'] || keys['ArrowRight']) moveStrafe = 1;
 
-  // Normalize screen vector (handles all combos equally)
-  const smag = Math.sqrt(sx * sx + sy * sy);
   let wx = 0, wy = 0;
-  if (smag > 0) {
-    const nsx = sx / smag;
-    const nsy = sy / smag;
-    // Inverse iso projection (TILE_W=64, TILE_H=32):
-    //   screen_x = wx/2 - wy  →  wx =  nsx + 2*nsy
-    //   screen_y = wx/4 + wy/2 →  wy =  nsy - nsx*0.5
-    wx = (nsx + 2 * nsy) * speed;
-    wy = (nsy - nsx * 0.5) * speed;
+  if (moveForward !== 0 || moveStrafe !== 0) {
+    // Normalize input
+    const mag = Math.sqrt(moveForward * moveForward + moveStrafe * moveStrafe);
+    const nf = moveForward / mag;
+    const ns = moveStrafe / mag;
+    
+    // facingAngle is the direction the camera is looking
+    const cosA = Math.cos(player.facingAngle);
+    const sinA = Math.sin(player.facingAngle);
+    
+    wx = (nf * cosA + ns * Math.cos(player.facingAngle + Math.PI/2)) * speed;
+    wy = (nf * sinA + ns * Math.sin(player.facingAngle + Math.PI/2)) * speed;
+    player.isMoving = true;
+  } else {
+    player.isMoving = false;
   }
 
   // ── collision with map boundaries & water ─────────────────────────────────
@@ -191,7 +196,7 @@ export function playerAttack(player, zombies, now) {
   return hit;
 }
 
-export function useItem(player, itemType) {
+export function consumeItem(player, itemType) {
   if (player.inventory[itemType] <= 0) return false;
   if (itemType === 'food') {
     player.hunger = Math.min(PLAYER_MAX_HUNGER, player.hunger + 30);

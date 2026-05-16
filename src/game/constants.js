@@ -1,8 +1,8 @@
 // ─── Tile & World ───────────────────────────────────────────────────────────
 export const TILE_W = 64;          // isometric tile width
 export const TILE_H = 32;          // isometric tile height
-export const MAP_COLS = 60;
-export const MAP_ROWS = 60;
+export const MAP_COLS = 200;
+export const MAP_ROWS = 200;
 
 // ─── Player ──────────────────────────────────────────────────────────────────
 export const PLAYER_SPEED       = 3;
@@ -13,7 +13,7 @@ export const PLAYER_MAX_WATER   = 100;
 export const PLAYER_MAX_STAMINA = 100;
 export const HUNGER_DECAY_RATE  = 0.00033;  // ~5 min to deplete at 60fps
 export const WATER_DECAY_RATE   = 0.00042;  // ~4 min to deplete at 60fps
-export const STAMINA_RUN_DECAY  = 0.25;
+export const STAMINA_RUN_DECAY  = 0.08;
 export const STAMINA_REGEN      = 0.12;
 export const ATTACK_RANGE       = 55;
 export const ATTACK_DAMAGE      = 20;

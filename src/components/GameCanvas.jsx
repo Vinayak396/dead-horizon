@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { useGameLoop } from '../hooks/useGameLoop.js';
 import { createGameState, gameUpdate, gameDraw, handleBuild, handleAttack, handleThrowable, addAlert } from '../game/engine.js';
-import { useItem, tryStealthKill } from '../game/player.js';
+import { consumeItem, tryStealthKill } from '../game/player.js';
 import { TILE_W, TILE_H } from '../game/constants.js';
 import HUD from './HUD.jsx';
 
@@ -27,10 +27,10 @@ export default function GameCanvas({ onDead, onVictory }) {
       keysRef.current[e.code] = true;
       const s = stateRef.current;
       if (!s) return;
-      if (e.code === 'Digit1') useItem(s.player, 'food');
-      if (e.code === 'Digit2') useItem(s.player, 'water_jug');
-      if (e.code === 'Digit3') useItem(s.player, 'meat');
-      if (e.code === 'Digit4') useItem(s.player, 'sun_stone');
+      if (e.code === 'Digit1') consumeItem(s.player, 'food');
+      if (e.code === 'Digit2') consumeItem(s.player, 'water_jug');
+      if (e.code === 'Digit3') consumeItem(s.player, 'meat');
+      if (e.code === 'Digit4') consumeItem(s.player, 'sun_stone');
       if (e.code === 'KeyF') s.buildMode = s.buildMode === 'fence'      ? null : 'fence';
       if (e.code === 'KeyG') s.buildMode = s.buildMode === 'wall'       ? null : 'wall';
       if (e.code === 'KeyH') s.buildMode = s.buildMode === 'watchtower' ? null : 'watchtower';
@@ -66,29 +66,45 @@ export default function GameCanvas({ onDead, onVictory }) {
   const handleMouseMove = useCallback((e) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    mouseRef.current.x = mx;
-    mouseRef.current.y = my;
-    mouseRef.current.angle = Math.atan2(my - canvas.height / 2, mx - canvas.width / 2);
-
-    const s = stateRef.current;
-    if (!s) return;
-    const { player } = s;
-    const camX = (player.x / TILE_W - player.y / TILE_H) * (TILE_W / 2);
-    const camY = (player.x / TILE_W + player.y / TILE_H) * (TILE_H / 2);
-    const relX = (mx - canvas.width / 2) + camX;
-    const relY = (my - canvas.height / 2) + camY;
-    s.hoverCol = Math.floor((relX / (TILE_W / 2) + relY / (TILE_H / 2)) / 2);
-    s.hoverRow = Math.floor((relY / (TILE_H / 2) - relX / (TILE_W / 2)) / 2);
+    
+    if (document.pointerLockElement === canvas) {
+      // First-Person camera rotation
+      const dx = e.movementX || 0;
+      mouseRef.current.angle += dx * 0.003; // sensitivity
+      // normalize
+      if (mouseRef.current.angle > Math.PI * 2) mouseRef.current.angle -= Math.PI * 2;
+      if (mouseRef.current.angle < 0) mouseRef.current.angle += Math.PI * 2;
+    } else {
+      // Free mouse mode
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      mouseRef.current.x = mx;
+      mouseRef.current.y = my;
+    }
   }, []);
 
-  const handleMouseClick = useCallback(() => {
+  const handleMouseClick = useCallback((e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    if (document.pointerLockElement !== canvas) {
+      // Request pointer lock on first click
+      canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
+      canvas.requestPointerLock();
+      return;
+    }
+
     const s = stateRef.current;
     if (!s || s.gamePhase !== 'playing') return;
     if (s.buildMode) {
-      handleBuild(s, s.hoverCol, s.hoverRow);
+      // Building might be weird in FPS, but let's keep the hook
+      // We will place it directly in front of the player
+      // s.hoverCol / s.hoverRow need to be calculated based on looking direction
+      const pDist = 64; // distance to place
+      const tx = s.player.x + Math.cos(s.player.facingAngle) * pDist;
+      const ty = s.player.y + Math.sin(s.player.facingAngle) * pDist;
+      handleBuild(s, Math.floor(tx / TILE_W), Math.floor(ty / TILE_H));
     } else {
       handleAttack(s, performance.now());
     }
@@ -146,7 +162,7 @@ export default function GameCanvas({ onDead, onVictory }) {
   }, []);
 
   const doUseItem = useCallback((item) => {
-    if (stateRef.current) useItem(stateRef.current.player, item);
+    if (stateRef.current) consumeItem(stateRef.current.player, item);
   }, []);
 
   return (

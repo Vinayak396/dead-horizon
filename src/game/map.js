@@ -1,4 +1,4 @@
-import { TILE, MAP_COLS, MAP_ROWS, COLORS } from './constants.js';
+import { TILE, MAP_COLS, MAP_ROWS, COLORS, TILE_W, TILE_H } from './constants.js';
 
 // ─── Noise helper (simple value noise) ──────────────────────────────────────
 function mulberry32(a) {
@@ -16,20 +16,40 @@ export function generateMap(seed = 42) {
   const resources = [];
   const buildings = {};
 
-  // ── build noise grid ───────────────────────────────────────────────────────
-  const noise = Array.from({ length: MAP_ROWS }, () =>
-    Array.from({ length: MAP_COLS }, () => rng())
+  // ── build noise grid (Bilinear Interpolation for massive biomes) ─────────
+  const scale = 80; // Massive biome scale
+  const noiseGridRows = Math.ceil(MAP_ROWS / scale) + 1;
+  const noiseGridCols = Math.ceil(MAP_COLS / scale) + 1;
+  const noiseGrid = Array.from({ length: noiseGridRows }, () =>
+    Array.from({ length: noiseGridCols }, () => rng())
   );
+
+  function getNoise(r, c) {
+    const x0 = Math.floor(c / scale);
+    const x1 = x0 + 1;
+    const y0 = Math.floor(r / scale);
+    const y1 = y0 + 1;
+    const sx = (c / scale) - x0;
+    const sy = (r / scale) - y0;
+    
+    // smoothstep function for organic curves
+    const smoothX = sx * sx * (3 - 2 * sx);
+    const smoothY = sy * sy * (3 - 2 * sy);
+
+    const nx0 = noiseGrid[y0][x0] * (1 - smoothX) + noiseGrid[y0][x1] * smoothX;
+    const nx1 = noiseGrid[y1][x0] * (1 - smoothX) + noiseGrid[y1][x1] * smoothX;
+    return nx0 * (1 - smoothY) + nx1 * smoothY;
+  }
 
   for (let r = 0; r < MAP_ROWS; r++) {
     tiles[r] = [];
     for (let c = 0; c < MAP_COLS; c++) {
-      const n = noise[r][c];
-      if (n < 0.07) tiles[r][c] = TILE.WATER;
-      else if (n < 0.18) tiles[r][c] = TILE.SAND;
-      else if (n < 0.55) tiles[r][c] = TILE.GRASS;
-      else if (n < 0.70) tiles[r][c] = TILE.DIRT;
-      else if (n < 0.82) tiles[r][c] = TILE.ROAD;
+      const n = getNoise(r, c);
+      if (n < 0.20) tiles[r][c] = TILE.WATER;
+      else if (n < 0.35) tiles[r][c] = TILE.SAND;
+      else if (n < 0.65) tiles[r][c] = TILE.GRASS;
+      else if (n < 0.80) tiles[r][c] = TILE.DIRT;
+      else if (n < 0.90) tiles[r][c] = TILE.ROAD;
       else tiles[r][c] = TILE.RUBBLE;
     }
   }
@@ -49,17 +69,18 @@ export function generateMap(seed = 42) {
   // ── generate world buildings (ruins) ──────────────────────────────────────
   let bPlaced = 0;
   let bAttempts = 0;
-  while (bPlaced < 8 && bAttempts < 100) {
+  // Increase buildings because map is 200x200
+  while (bPlaced < 40 && bAttempts < 300) {
     bAttempts++;
-    const bw = Math.floor(rng() * 4) + 4; // 4 to 7
-    const bh = Math.floor(rng() * 4) + 4;
+    const bw = Math.floor(rng() * 6) + 5; 
+    const bh = Math.floor(rng() * 6) + 5;
     const br = Math.floor(rng() * (MAP_ROWS - bh - 4)) + 2;
     const bc = Math.floor(rng() * (MAP_COLS - bw - 4)) + 2;
 
     // Don't spawn on player
     if (Math.hypot(br + bh/2 - cr, bc + bw/2 - cc) < 15) continue;
-
-    // Check if flat enough (no water)
+    
+    // Check if flat enough (mostly dirt or road)
     let ok = true;
     for (let r = br; r < br + bh; r++) {
       for (let c = bc; c < bc + bw; c++) {
@@ -89,39 +110,20 @@ export function generateMap(seed = 42) {
     bPlaced++;
   }
 
-  // ── scatter resources ─────────────────────────────────────────────────────
-  const resourceDefs = [
-    // Natural / Outdoor
-    { type:'food',      count:35, tile:[TILE.GRASS, TILE.DIRT] },
-    { type:'water_jug', count:25, tile:[TILE.SAND, TILE.RUBBLE, TILE.ROAD] },
-    { type:'wood',      count:40, tile:[TILE.GRASS] },
-    { type:'stone',     count:35, tile:[TILE.RUBBLE, TILE.DIRT] },
-    { type:'meat',      count:20, tile:[TILE.GRASS, TILE.RUBBLE] },
-    
-    // Human-made / Indoors only
-    { type:'rags',      count:35, tile:[TILE.FLOOR] },
-    { type:'pills',     count:25, tile:[TILE.FLOOR] },
-    { type:'medkit',    count:5,  tile:[TILE.FLOOR] },
-    { type:'shiv',      count:8,  tile:[TILE.FLOOR] },
-  ];
+  // ── resources ─────────────────────────────────────────────────────────────
+  // More resources for a larger map
+  for (let i = 0; i < 300; i++) {
+    const r = Math.floor(rng() * MAP_ROWS);
+    const c = Math.floor(rng() * MAP_COLS);
+    if (tiles[r][c] === TILE.WATER || tiles[r][c] === TILE.WALL) continue;
+    if (Math.hypot(r - cr, c - cc) < 5) continue; // not directly on spawn
 
-  for (const def of resourceDefs) {
-    let placed = 0;
-    let attempts = 0;
-    while (placed < def.count && attempts < 3000) {
-      attempts++;
-      const r = Math.floor(rng() * MAP_ROWS);
-      const c = Math.floor(rng() * MAP_COLS);
-      const dist = Math.hypot(r - cr, c - cc);
-      if (dist < 8) continue;
-      if (!def.tile.includes(tiles[r][c])) continue;
-      const key = `${r},${c}`;
-      if (resources.find(x => x.key === key)) continue;
-      resources.push({ key, row: r, col: c, type: def.type, amount: Math.floor(rng() * 4) + 2 });
-      placed++;
-    }
+    const typePool = ['food', 'water_jug', 'wood', 'stone', 'rags', 'pills'];
+    const type = typePool[Math.floor(rng() * typePool.length)];
+    const amount = Math.floor(rng() * 3) + 1;
+    resources.push({ row: r, col: c, type, amount, isSunStone: false });
   }
-
+  
   // ── place the Sun Stone (single, far from centre, deep map) ───────────────
   let sunPlaced = false;
   let sunAttempts = 0;
@@ -130,14 +132,37 @@ export function generateMap(seed = 42) {
     const r = Math.floor(rng() * MAP_ROWS);
     const c = Math.floor(rng() * MAP_COLS);
     const dist = Math.hypot(r - cr, c - cc);
-    if (dist < 20) continue;
-    const key = `${r},${c}`;
-    if (resources.find(x => x.key === key)) continue;
-    resources.push({ key, row: r, col: c, type: 'sun_stone', amount: 1, isSunStone: true });
+    if (dist < 40) continue; // Much further away because map is 200x200!
+    if (tiles[r][c] === TILE.WATER || tiles[r][c] === TILE.WALL) continue;
+    
+    resources.push({ row: r, col: c, type: 'sun_stone', amount: 1, isSunStone: true });
     sunPlaced = true;
   }
 
   return { tiles, resources, buildings };
+}
+
+export function getTileHeight(tileType) {
+  const heights = {
+    [TILE.WATER]: 0,
+    [TILE.SAND]: 4,
+    [TILE.ROAD]: 6,
+    [TILE.DIRT]: 8,
+    [TILE.GRASS]: 12,
+    [TILE.FLOOR]: 16,
+    [TILE.RUBBLE]: 20,
+    [TILE.WALL]: 60,
+  };
+  return heights[tileType] || 0;
+}
+
+export function getExactHeight(x, y, tiles) {
+  const c = Math.floor(x / TILE_W);
+  const r = Math.floor(y / TILE_H);
+  if (c < 0 || c >= MAP_COLS || r < 0 || r >= MAP_ROWS) return 0;
+  const t = tiles[r][c];
+  if (t === TILE.WALL) return 20; // Prevent snapping to top of solid walls
+  return getTileHeight(t);
 }
 
 // ─── Coordinate helpers ───────────────────────────────────────────────────────
